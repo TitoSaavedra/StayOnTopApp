@@ -51,7 +51,7 @@ Diseñado para usuarios que necesitan anclar ventanas específicas sobre aplicac
 
 Si deseas compilar el proyecto desde el código fuente:
 
-1.  Clona el repositorio: `git clone https://github.com/TitoS/StayOnTopApp.git`
+1.  Clona el repositorio: `git clone https://github.com/TitoSaavedra/StayOnTopApp.git`
 2.  Abre la solución en **Visual Studio 2022**.
 3.  Establece la configuración de compilación en **Release**.
 4.  Publica como **Single File**:
@@ -67,4 +67,4 @@ Este proyecto está bajo la licencia **MIT**. Siéntete libre de usarlo, modific
 
 ---
 
-**Desarrollado con 💻 y ☕ por [TitoS](https://github.com/TitoSaavedra)** _"Optimizando cosas que nadie pidió optimizar."_
+**Desarrollado con 💻 y ☕ por [TitoSaavedra](https://github.com/TitoSaavedra)** _"Optimizando cosas que nadie pidió optimizar."_
