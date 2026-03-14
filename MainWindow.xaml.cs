@@ -16,24 +16,26 @@ namespace StayOnTopApp
 {
     public partial class MainWindow : Window
     {
-        List<string> _processList = new List<string>();
-        List<IntPtr> _selectedWindows = new List<IntPtr>();
-        bool _isPicking = false;
-        long _lastIdleTime, _lastKernelTime, _lastUserTime;
-        DispatcherTimer timer = new DispatcherTimer();
+        private List<string> _processList = new List<string>();
+        private readonly List<IntPtr> _selectedWindows = new List<IntPtr>();
+        private readonly Dictionary<string, string> _iconCache = new Dictionary<string, string>();
+        private bool _isPicking = false;
+        private long _lastIdleTime, _lastKernelTime, _lastUserTime;
+        private readonly DispatcherTimer _scanTimer = new DispatcherTimer();
 
         public MainWindow()
         {
             InitializeComponent();
             InitializeAsync();
+
             NativeMethods.GetSystemTimes(out _lastIdleTime, out _lastKernelTime, out _lastUserTime);
 
-            timer.Interval = TimeSpan.FromSeconds(1);
-            timer.Tick += (s, e) => { AutoScanProcesses(); UpdateCpuUsage(); };
-            timer.Start();
+            _scanTimer.Interval = TimeSpan.FromSeconds(1);
+            _scanTimer.Tick += (s, e) => { AutoScanProcesses(); UpdateCpuUsage(); };
+            _scanTimer.Start();
         }
 
-        async void InitializeAsync()
+        private async void InitializeAsync()
         {
             await webView.EnsureCoreWebView2Async();
             string htmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "index.html");
@@ -41,24 +43,24 @@ namespace StayOnTopApp
             webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
         }
 
-        void UpdateCpuUsage()
+        private void UpdateCpuUsage()
         {
-            if (NativeMethods.GetSystemTimes(out long idleTime, out long kernelTime, out long userTime))
+            if (!NativeMethods.GetSystemTimes(out long idleTime, out long kernelTime, out long userTime)) return;
+
+            long totalDelta = (kernelTime - _lastKernelTime) + (userTime - _lastUserTime);
+            if (totalDelta > 0)
             {
-                long totalDelta = (kernelTime - _lastKernelTime) + (userTime - _lastUserTime);
-                if (totalDelta > 0)
-                {
-                    float cpuUsage = 100.0f * (totalDelta - (idleTime - _lastIdleTime)) / totalDelta;
-                    webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { command = "CPU_UPDATE", value = Math.Round(Math.Clamp(cpuUsage, 0, 100)) }));
-                }
-                _lastIdleTime = idleTime; _lastKernelTime = kernelTime; _lastUserTime = userTime;
+                float cpuUsage = 100.0f * (totalDelta - (idleTime - _lastIdleTime)) / totalDelta;
+                SendJson(new { command = "CPU_UPDATE", value = Math.Round(Math.Clamp(cpuUsage, 0, 100)) });
             }
+            _lastIdleTime = idleTime; _lastKernelTime = kernelTime; _lastUserTime = userTime;
         }
 
         private void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs args)
         {
-            var json = JsonDocument.Parse(args.WebMessageAsJson).RootElement;
-            string command = json.GetProperty("command").GetString();
+            using var json = JsonDocument.Parse(args.WebMessageAsJson);
+            var root = json.RootElement;
+            string command = root.GetProperty("command").GetString();
 
             switch (command)
             {
@@ -69,14 +71,20 @@ namespace StayOnTopApp
                 case "CLOSE": Close(); break;
                 case "MINIMIZE": WindowState = WindowState.Minimized; break;
                 case "GET_PROCESSES": EnviarProcesos(); break;
-                case "SET_PIN": TogglePin(json.GetProperty("name").GetString(), true); break;
-                case "SET_UNPIN": TogglePin(json.GetProperty("name").GetString(), false); break;
-                case "START_PICKER": _isPicking = true; Mouse.OverrideCursor = Cursors.Cross; StartPickingTimer(); break;
+                case "SET_PIN": TogglePin(root.GetProperty("name").GetString(), true); break;
+                case "SET_UNPIN": TogglePin(root.GetProperty("name").GetString(), false); break;
+                case "START_PICKER":
+                    _isPicking = true;
+                    Mouse.OverrideCursor = Cursors.Cross;
+                    StartPickingTimer();
+                    break;
             }
         }
 
-        void TogglePin(string name, bool pin)
+        private void TogglePin(string name, bool pin)
         {
+            if (!pin) SendJson(new { command = "SET_UNPIN", name });
+
             if (name.Contains("HWND 0x"))
             {
                 IntPtr hWnd = new IntPtr(Convert.ToInt64(name.Split("0x")[1], 16));
@@ -84,57 +92,92 @@ namespace StayOnTopApp
             }
             else
             {
-                var procs = Process.GetProcessesByName(name.Replace(".exe", ""));
-                foreach (var p in procs) ApplyWindowEffects(p.MainWindowHandle, pin);
+                var cleanName = name.Replace(".exe", "");
+                foreach (var p in Process.GetProcessesByName(cleanName))
+                    ApplyWindowEffects(p.MainWindowHandle, pin);
             }
+
+            SetScannTimmerInterval(pin);
         }
 
-        void ApplyWindowEffects(IntPtr hWnd, bool pin)
+        private void ApplyWindowEffects(IntPtr hWnd, bool pin)
         {
-            if (hWnd == IntPtr.Zero) return;
+            if (hWnd == IntPtr.Zero || !NativeMethods.IsWindow(hWnd)) return;
             NativeMethods.SetWindowPos(hWnd, pin ? NativeMethods.HWND_TOPMOST : NativeMethods.HWND_NOTOPMOST, 0, 0, 0, 0, NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE);
-            NativeMethods.MakeClickThrough(hWnd, pin); 
+            NativeMethods.MakeClickThrough(hWnd, pin);
         }
 
-        void EnviarProcesos()
+        private void EnviarProcesos()
         {
-            var procs = Process.GetProcesses().Where(p => !string.IsNullOrEmpty(p.MainWindowTitle))
-                .Select(p => new { name = p.ProcessName + ".exe", icon = GetIcon(p) }).ToList();
+            var activeProcs = Process.GetProcesses()
+                .Where(p => !string.IsNullOrEmpty(p.MainWindowTitle))
+                .Select(p => new { name = p.ProcessName + ".exe", icon = GetIconCached(p) });
 
-            var selected = _selectedWindows.Where(h => NativeMethods.IsWindow(h))
+            var customWindows = _selectedWindows
+                .Where(h => NativeMethods.IsWindow(h))
                 .Select(h => {
                     NativeMethods.GetWindowThreadProcessId(h, out uint pid);
-                    try { var p = Process.GetProcessById((int)pid); return new { name = $"{p.ProcessName}.exe | HWND 0x{h.ToInt64():X}", icon = GetIcon(p) }; }
+                    try
+                    {
+                        var p = Process.GetProcessById((int)pid);
+                        return new { name = $"{p.ProcessName}.exe | HWND 0x{h.ToInt64():X}", icon = GetIconCached(p) };
+                    }
                     catch { return null; }
-                }).Where(x => x != null).ToList();
+                }).Where(x => x != null);
 
-            webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { command = "PROCESS_LIST", data = procs.Concat(selected).GroupBy(p => p.name).Select(g => g.First()).OrderBy(p => p.name).ToList() }));
+            SendJson(new
+            {
+                command = "PROCESS_LIST",
+                data = activeProcs.Concat(customWindows).GroupBy(p => p.name).Select(g => g.First()).OrderBy(p => p.name)
+            });
         }
 
-        string GetIcon(Process p)
+        private string GetIconCached(Process p)
         {
             try
             {
-                using var icon = Drawing.Icon.ExtractAssociatedIcon(p.MainModule.FileName);
+                string fileName = p.MainModule.FileName;
+                if (_iconCache.TryGetValue(fileName, out string cachedIcon)) return cachedIcon;
+
+                using var icon = Drawing.Icon.ExtractAssociatedIcon(fileName);
                 using var ms = new MemoryStream();
                 icon.ToBitmap().Save(ms, ImageFormat.Png);
-                return "data:image/png;base64," + Convert.ToBase64String(ms.ToArray());
+                string base64 = "data:image/png;base64," + Convert.ToBase64String(ms.ToArray());
+
+                _iconCache[fileName] = base64;
+                return base64;
             }
             catch { return ""; }
         }
 
-        void AutoScanProcesses()
+        private void AutoScanProcesses()
         {
-            var current = Process.GetProcesses().Where(p => p.MainWindowHandle != IntPtr.Zero && p.Id != 0).Select(p => p.ProcessName + ".exe").Distinct().OrderBy(p => p).ToList();
-            if (!_processList.SequenceEqual(current)) { _processList = current; EnviarProcesos(); }
+            var current = Process.GetProcesses()
+                .Where(p => p.MainWindowHandle != IntPtr.Zero && p.Id != 0)
+                .Select(p => p.ProcessName + ".exe")
+                .Distinct().OrderBy(p => p).ToList();
+
+            if (!_processList.SequenceEqual(current))
+            {
+                _processList = current;
+                EnviarProcesos();
+            }
         }
 
-        void StartPickingTimer()
+        private void StartPickingTimer()
         {
             DispatcherTimer pickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
             pickTimer.Tick += (s, e) =>
             {
                 if (!_isPicking) return;
+
+                // Cancelar con ESC
+                if ((NativeMethods.GetAsyncKeyState(0x1B) & 0x8000) != 0)
+                {
+                    StopPicking(pickTimer, "PICK_CANCELLED");
+                    return;
+                }
+
                 NativeMethods.GetCursorPos(out Drawing.Point pt);
                 IntPtr hWnd = NativeMethods.GetAncestor(NativeMethods.WindowFromPoint(pt), NativeMethods.GA_ROOT);
                 if (hWnd == IntPtr.Zero) return;
@@ -143,18 +186,34 @@ namespace StayOnTopApp
                 try
                 {
                     var p = Process.GetProcessById((int)pid);
-                    webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { command = "HOVER_PROCESS", name = $"{p.ProcessName}.exe | HWND 0x{hWnd.ToInt64():X}", pid = pid }));
+                    SendJson(new { command = "HOVER_PROCESS", name = $"{p.ProcessName}.exe | HWND 0x{hWnd.ToInt64():X}", pid });
 
+                    // Click Izquierdo para seleccionar
                     if ((NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0)
                     {
-                        _isPicking = false; Mouse.OverrideCursor = null; pickTimer.Stop();
                         if (!_selectedWindows.Contains(hWnd)) _selectedWindows.Add(hWnd);
-                        webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { command = "PICKED_PROCESS", name = $"{p.ProcessName}.exe | HWND 0x{hWnd.ToInt64():X}" }));
+                        StopPicking(pickTimer, "PICKED_PROCESS", $"{p.ProcessName}.exe | HWND 0x{hWnd.ToInt64():X}");
                     }
                 }
                 catch { }
             };
             pickTimer.Start();
         }
+
+        private void StopPicking(DispatcherTimer timer, string command, string name = null)
+        {
+            _isPicking = false;
+            Mouse.OverrideCursor = null;
+            timer.Stop();
+            SendJson(new { command, name });
+        }
+
+        private void SetScannTimmerInterval(bool pinned)
+        {
+            _scanTimer.Interval = pinned ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(50);
+        }
+
+        private void SendJson(object data) =>
+            webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(data));
     }
 }

@@ -44,5 +44,6 @@ namespace StayOnTopApp
             else
                 SetWindowLong(hwnd, GWL_EXSTYLE, ex & ~WS_EX_TRANSPARENT);
         }
+
     }
 }

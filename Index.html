@@ -76,7 +76,7 @@
                         <button onclick="window.chrome.webview.postMessage({command:'START_PICKER'})"
                             class="w-full bg-[#C0C0C0] win-border py-1.5 flex items-center justify-center gap-2 win-button active:win-inset">
                             <i data-lucide="target" class="w-4 h-4 text-red-700"></i>
-                            <span class="text-[10px] font-bold text-black uppercase">Pick window with mouse</span>
+                            <span id="pickWhitMouse" class="text-[10px] font-bold text-black uppercase">Pick window with mouse</span>
                         </button>
                     </div>
                 </div>
@@ -113,105 +113,107 @@
             <div class="w-16 text-center">v1.2.0</div>
         </div>
 
-        <script>
-            const commandTypes = {
-                PROCESS_LIST: "PROCESS_LIST",
-                CPU_UPDATE: "CPU_UPDATE",
-                HOVER_PROCESS: "HOVER_PROCESS",
-                PICKED_PROCESS: "PICKED_PROCESS"
-            };
+     <script>
+        const commandTypes = {
+            PROCESS_LIST: "PROCESS_LIST", CPU_UPDATE: "CPU_UPDATE",
+            HOVER_PROCESS: "HOVER_PROCESS", PICKED_PROCESS: "PICKED_PROCESS",
+            PICK_CANCELLED: "PICK_CANCELLED", SET_UNPIN: "SET_UNPIN"
+        };
 
-            let pinned = [];
-            let processIcons = {};
-            let statusTimeout;
+        let pinned = [], processIcons = {}, statusTimeout;
+        const pickDefaultStatus = "Pick window with mouse";
+        const el = {
+            select: () => document.getElementById('processSelect'),
+            list: () => document.getElementById('pinnedList'),
+            readyBar: () => document.querySelector('.flex-1.px-2.border-r'),
+            cpu: () => document.getElementById('cpuDisplay'),
+            pickBtnText: () => document.getElementById('pickWhitMouse')
+        };
 
-            const ICON_BLACK_TEMPLATE = (path) => `
-            <div class="w-6 h-6 bg-[#FFFFCC] flex items-center justify-center win-inset">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="black">
-                    <path d="M12 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4l-3-2zM4 3h6v2.5h2v9H4V3z"/>
-                </svg>
-            </div>`;
+        const sendToCS = (cmd, data = {}) => window.chrome.webview.postMessage({ command: cmd, ...data });
+        const refresh = () => sendToCS("GET_PROCESSES");
 
-            const sendToCS = (cmd, data = {}) => window.chrome.webview.postMessage({ command: cmd, ...data });
-            const refresh = () => sendToCS("GET_PROCESSES");
+        const setStatus = (text, cls, delay = 0) => {
+            clearTimeout(statusTimeout);
+            const bar = el.readyBar();
+            bar.innerText = text;
+            bar.className = `flex-1 px-2 border-r font-bold ${cls}`;
+            if (delay) statusTimeout = setTimeout(() => setStatus("READY", "text-gray-600"), delay);
+        };
 
-            function handleAction(cmd) {
-                const select = document.getElementById('processSelect');
-                const val = select.value;
-                if (!val || val === "Loading...") return;
-                sendToCS(cmd, { name: val });
-                if (cmd === 'SET_PIN' && !pinned.find(x => x.name === val)) {
-                    pinned.push({ name: val, icon: processIcons[val] || "" });
-                    render();
-                }
-            }
-
-            function render() {
-                const list = document.getElementById('pinnedList');
-                list.innerHTML = pinned.map(p => `
-                <div class="flex items-center justify-between p-2 border-b border-gray-100 hover:bg-blue-50 group">
-                    <div class="flex items-center gap-3">
-                        ${ICON_BLACK_TEMPLATE()}
-                        <span class="text-[11px] font-bold text-black">${p.name}</span>
-                    </div>
-                    <button onclick="removePinned('${p.name}')" class="p-1 text-gray-400 hover:text-red-600 transition-colors">
-                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                    </button>
-                </div>
-            `).join('');
-                lucide.createIcons();
-            }
-
-            function removePinned(name) {
-                pinned = pinned.filter(x => x.name !== name);
+        function handleAction(cmd) {
+            const val = el.select().value;
+            if (!val || val === "Loading...") return;
+            sendToCS(cmd, { name: val });
+            if (cmd === 'SET_PIN' && !pinned.find(x => x.name === val)) {
+                pinned.push({ name: val, icon: processIcons[val] || "" });
                 render();
             }
-            window.chrome.webview.addEventListener('message', e => {
-                const msg = e.data;
-                const readyBar = document.querySelector('.flex-1.px-2.border-r');
-                const select = document.getElementById('processSelect');
+        }
 
-                switch (msg.command) {
-                    case commandTypes.PROCESS_LIST:
-                        const savedValue = select.value;
-                        select.innerHTML = msg.data.map(p => {
-                            processIcons[p.name] = p.icon;
-                            return `<option value="${p.name}">${p.name}</option>`;
-                        }).join('');
-                        if (savedValue) select.value = savedValue;
-                        break;
-
-                    case commandTypes.CPU_UPDATE:
-                        document.getElementById('cpuDisplay').innerText = `CPU: ${msg.value}%`;
-                        break;
-
-                    case commandTypes.HOVER_PROCESS:
-                        clearTimeout(statusTimeout);
-                        const isPinned = pinned.some(p => p.name.toLowerCase() === msg.name.toLowerCase());
-                        readyBar.innerText = `TARGET: ${msg.name}${isPinned ? ` [PID: ${msg.pid}]` : ''}`;
-                        readyBar.className = "flex-1 px-2 border-r text-blue-700 font-bold";
-                        break;
-
-                    case commandTypes.PICKED_PROCESS:
-                        if (![...select.options].some(opt => opt.value === msg.name)) {
-                            select.add(new Option(msg.name, msg.name));
-                        }
-                        select.value = msg.name;
-
-                        readyBar.innerText = "SELECTED: " + msg.name;
-                        readyBar.className = "flex-1 px-2 border-r text-green-700 font-bold";
-
-                        statusTimeout = setTimeout(() => {
-                            readyBar.innerText = "READY";
-                            readyBar.className = "flex-1 px-2 border-r text-gray-600";
-                        }, 2000);
-                        break;
-                }
-            });
-
-            setTimeout(refresh, 500);
+        function render() {
+            el.list().innerHTML = pinned.map(p => `
+                <div class="flex items-center justify-between p-2 border-b border-gray-100 hover:bg-blue-50 group">
+                    <div class="flex items-center gap-3">
+                        <div class="w-6 h-6 bg-[#FFFFCC] flex items-center justify-center win-inset">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="black"><path d="M12 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4l-3-2zM4 3h6v2.5h2v9H4V3z"/></svg>
+                        </div>
+                        <span class="text-[11px] font-bold text-black">${p.name}</span>
+                    </div>
+                    <button onclick="removePinned('${p.name}')" class="p-1 text-gray-400 hover:text-red-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>`).join('');
             lucide.createIcons();
-        </script>
+        }
+
+        function removePinned(name) {
+            sendToCS("SET_UNPIN", { name });
+            pinned = pinned.filter(x => x.name !== name);
+            render();
+        }
+
+        window.chrome.webview.addEventListener('message', ({ data: msg }) => {
+            const s = el.select();
+            switch (msg.command) {
+                case commandTypes.PROCESS_LIST:
+                    const val = s.value;
+                    s.innerHTML = msg.data.map(p => {
+                        processIcons[p.name] = p.icon;
+                        return `<option value="${p.name}">${p.name}</option>`;
+                    }).join('');
+                    if (val) s.value = val;
+                    break;
+
+                case commandTypes.CPU_UPDATE:
+                    el.cpu().innerText = `CPU: ${msg.value}%`;
+                    break;
+
+                case commandTypes.HOVER_PROCESS:
+                    el.pickBtnText().innerText = "CANCEL WITH ESCAPE";
+                    const isPinned = pinned.some(p => p.name.toLowerCase() === msg.name.toLowerCase());
+                    setStatus(`TARGET: ${msg.name}${isPinned ? ` [PID: ${msg.pid}]` : ''}`, "text-blue-700");
+                    break;
+
+                case commandTypes.PICKED_PROCESS:
+                    el.pickBtnText().innerText = pickDefaultStatus;
+                    if (![...s.options].some(o => o.value === msg.name)) s.add(new Option(msg.name, msg.name));
+                    s.value = msg.name;
+                    setStatus(`SELECTED: ${msg.name}`, "text-green-700", 2000);
+                    break;
+
+                case commandTypes.PICK_CANCELLED:
+                    el.pickBtnText().innerText = pickDefaultStatus;
+                    setStatus("PICKING CANCELLED", "text-red-600", 2000);
+                    break;
+
+                case commandTypes.SET_UNPIN:
+                    removePinned(msg.name);
+                    break;
+            }
+        });
+
+        setTimeout(refresh, 500);
+        lucide.createIcons();
+    </script>
 </body>
 
 </html>
