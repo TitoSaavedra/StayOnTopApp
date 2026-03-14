@@ -1,0 +1,12 @@
+﻿<Window x:Class="StayOnTopApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="StayOnTop" Height="530" Width="400"
+        WindowStyle="None" AllowsTransparency="True" 
+        Background="#01000000" Topmost="True" 
+        WindowStartupLocation="CenterScreen">
+    <Grid Background="#01000000">
+        <wv2:WebView2 Name="webView" Source="about:blank" DefaultBackgroundColor="Transparent"/>
+    </Grid>
+</Window>

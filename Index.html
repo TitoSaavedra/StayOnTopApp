@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { background-color: transparent !important; margin: 0; padding: 10px; overflow: hidden; user-select: none; }
+        .win-border { border: 2px solid; border-color: white #808080 #808080 white; pointer-events: auto; }
+        .win-inset { border: 2px solid; border-color: #808080 white white #808080; }
+        .win-button:active { border-color: #808080 white white #808080; padding-top: 1px; }
+        .title-bar { cursor: move; }
+    </style>
+</head>
+<body class="flex justify-center">
+    <div class="w-[370px] bg-[#C0C0C0] win-border shadow-2xl">
+        <div class="title-bar bg-gradient-to-r from-[#000080] to-[#1084D0] p-1 flex items-center justify-between" onmousedown="window.chrome.webview.postMessage({command:'DRAG'})">
+            <div class="flex items-center gap-2 px-1">
+                <i data-lucide="layout-grid" class="w-4 h-4 text-white"></i>
+                <span class="text-white font-bold text-[12px]">StayOnTop - Mini</span>
+            </div>
+            <div class="flex gap-1" onmousedown="event.stopPropagation()">
+                <button onclick="window.chrome.webview.postMessage({command:'MINIMIZE'})" class="w-5 h-5 bg-[#C0C0C0] win-border flex items-center justify-center win-button font-bold">-</button>
+                <button onclick="window.chrome.webview.postMessage({command:'CLOSE'})" class="w-5 h-5 bg-[#C0C0C0] win-border flex items-center justify-center win-button font-bold">x</button>
+            </div>
+        </div>
+
+        <div class="p-4 space-y-4">
+            <div class="flex items-center gap-2">
+                <i data-lucide="monitor" class="w-6 h-6"></i>
+                <h1 class="text-xl font-bold">Active Processes</h1>
+            </div>
+
+            <select id="processSelect" class="w-full bg-white win-inset px-2 py-1.5 text-sm outline-none">
+                <option>Cargando procesos...</option>
+            </select>
+
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="handleAction('SET_PIN')" class="bg-[#C0C0C0] win-border p-4 flex flex-col items-center gap-2 win-button">
+                    <i data-lucide="pin" class="w-7 h-7 text-blue-700"></i>
+                    <span class="text-[11px] font-bold">PIN TO TOP</span>
+                </button>
+                <button onclick="handleAction('SET_UNPIN')" class="bg-[#C0C0C0] win-border p-4 flex flex-col items-center gap-2 win-button">
+                    <i data-lucide="pin-off" class="w-7 h-7 text-gray-600"></i>
+                    <span class="text-[11px] font-bold">UNPIN</span>
+                </button>
+            </div>
+
+            <div class="win-inset bg-white min-h-[100px] max-h-[100px] overflow-y-auto p-1 text-xs font-bold" id="pinnedList"></div>
+        </div>
+
+        <div class="bg-[#C0C0C0] border-t-2 border-white p-1 flex items-center text-[10px] font-bold text-gray-600">
+            <div class="flex-1 px-2 border-r border-[#808080]">Ready</div>
+            <div class="w-16 text-center">v1.2.0</div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+        let pinned = [];
+
+        function refresh() { window.chrome.webview.postMessage({ command: "GET_PROCESSES" }); }
+        
+        function handleAction(cmd) {
+            const val = document.getElementById('processSelect').value;
+            window.chrome.webview.postMessage({ command: cmd, name: val });
+            if(cmd === 'SET_PIN' && !pinned.includes(val)) {
+                pinned.push(val);
+                render();
+            }
+        }
+
+        function render() {
+            const list = document.getElementById('pinnedList');
+            list.innerHTML = pinned.map(p => `
+                <div class="flex items-center justify-between p-1 border-b">
+                    <span>${p}</span>
+                    <button onclick="pinned=pinned.filter(x=>x!='${p}');render()" class="text-red-600">X</button>
+                </div>
+            `).join('');
+        }
+
+        window.chrome.webview.addEventListener('message', e => {
+            document.getElementById('processSelect').innerHTML = e.data.map(p => `<option value="${p}">${p}</option>`).join('');
+        });
+
+        setTimeout(refresh, 500);
+    </script>
+</body>
+</html>
