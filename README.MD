@@ -67,4 +67,4 @@ Este proyecto está bajo la licencia **MIT**. Siéntete libre de usarlo, modific
 
 ---
 
-**Desarrollado con 💻 y ☕ por [TitoS](https://github.com/TitoS)** _"Optimizando cosas que nadie pidió optimizar."_
+**Desarrollado con 💻 y ☕ por [TitoS](https://github.com/TitoSaavedra)** _"Optimizando cosas que nadie pidió optimizar."_
