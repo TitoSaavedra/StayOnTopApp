@@ -70,7 +70,7 @@ namespace StayOnTopApp
                     break;
                 case "CLOSE": Close(); break;
                 case "MINIMIZE": WindowState = WindowState.Minimized; break;
-                case "GET_PROCESSES": EnviarProcesos(); break;
+                case "GET_PROCESSES": SendProcesses(); break;
                 case "SET_PIN": TogglePin(root.GetProperty("name").GetString(), true); break;
                 case "SET_UNPIN": TogglePin(root.GetProperty("name").GetString(), false); break;
                 case "START_PICKER":
@@ -83,21 +83,26 @@ namespace StayOnTopApp
 
         private void TogglePin(string name, bool pin)
         {
-            if (!pin) SendJson(new { command = "SET_UNPIN", name });
+            if (!pin) SendJson(new { command = "SET_UNPIN", name = name });
 
             if (name.Contains("HWND 0x"))
             {
                 IntPtr hWnd = new IntPtr(Convert.ToInt64(name.Split("0x")[1], 16));
                 ApplyWindowEffects(hWnd, pin);
+                if (pin && !_selectedWindows.Contains(hWnd)) _selectedWindows.Add(hWnd);
             }
             else
             {
                 var cleanName = name.Replace(".exe", "");
                 foreach (var p in Process.GetProcessesByName(cleanName))
+                {
                     ApplyWindowEffects(p.MainWindowHandle, pin);
+                    if (pin && !_selectedWindows.Contains(p.MainWindowHandle))
+                        _selectedWindows.Add(p.MainWindowHandle);
+                }
             }
 
-            SetScannTimmerInterval(pin);
+            SetScanTimerInterval(pin);
         }
 
         private void ApplyWindowEffects(IntPtr hWnd, bool pin)
@@ -107,7 +112,7 @@ namespace StayOnTopApp
             NativeMethods.MakeClickThrough(hWnd, pin);
         }
 
-        private void EnviarProcesos()
+        private void SendProcesses()
         {
             var activeProcs = Process.GetProcesses()
                 .Where(p => !string.IsNullOrEmpty(p.MainWindowTitle))
@@ -160,7 +165,7 @@ namespace StayOnTopApp
             if (!_processList.SequenceEqual(current))
             {
                 _processList = current;
-                EnviarProcesos();
+                SendProcesses();
             }
         }
 
@@ -171,7 +176,7 @@ namespace StayOnTopApp
             {
                 if (!_isPicking) return;
 
-                // Cancelar con ESC
+                // Cancel with ESC (0x1B)
                 if ((NativeMethods.GetAsyncKeyState(0x1B) & 0x8000) != 0)
                 {
                     StopPicking(pickTimer, "PICK_CANCELLED");
@@ -188,7 +193,7 @@ namespace StayOnTopApp
                     var p = Process.GetProcessById((int)pid);
                     SendJson(new { command = "HOVER_PROCESS", name = $"{p.ProcessName}.exe | HWND 0x{hWnd.ToInt64():X}", pid });
 
-                    // Click Izquierdo para seleccionar
+                    // Left Click (0x01) to select
                     if ((NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0)
                     {
                         if (!_selectedWindows.Contains(hWnd)) _selectedWindows.Add(hWnd);
@@ -208,12 +213,26 @@ namespace StayOnTopApp
             SendJson(new { command, name });
         }
 
-        private void SetScannTimmerInterval(bool pinned)
+        private void SetScanTimerInterval(bool isPinned)
         {
-            _scanTimer.Interval = pinned ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(50);
+            _scanTimer.Interval = isPinned ? TimeSpan.FromSeconds(50) : TimeSpan.FromSeconds(1);
         }
 
         private void SendJson(object data) =>
             webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(data));
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            Mouse.OverrideCursor = null;
+
+            foreach (IntPtr hWnd in _selectedWindows)
+            {
+                if (NativeMethods.IsWindow(hWnd))
+                {
+                    NativeMethods.MakeClickThrough(hWnd, false);
+                }
+            }
+            base.OnClosing(e);
+        }
     }
 }

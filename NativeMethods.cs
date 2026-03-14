@@ -35,14 +35,20 @@ namespace StayOnTopApp
         [DllImport("user32.dll", SetLastError = true)] public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
         [DllImport("user32.dll", SetLastError = true)] public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
-        // Helpers Lógicos
         public static void MakeClickThrough(IntPtr hwnd, bool enable)
         {
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return;
             int ex = GetWindowLong(hwnd, GWL_EXSTYLE);
             if (enable)
+            {
                 SetWindowLong(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED | WS_EX_TRANSPARENT);
+                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            }
             else
+            {
                 SetWindowLong(hwnd, GWL_EXSTYLE, ex & ~WS_EX_TRANSPARENT);
+                SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            }
         }
 
     }
