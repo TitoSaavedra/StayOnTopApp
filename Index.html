@@ -8,12 +8,14 @@
         .win-border { border: 2px solid; border-color: white #808080 #808080 white; pointer-events: auto; }
         .win-inset { border: 2px solid; border-color: #808080 white white #808080; }
         .win-button:active { border-color: #808080 white white #808080; padding-top: 1px; }
-        .title-bar { cursor: move; }
+        ::-webkit-scrollbar { width: 12px; }
+        ::-webkit-scrollbar-thumb { background: #808080; border: 2px solid #C0C0C0; }
+
     </style>
 </head>
 <body class="flex justify-center">
     <div class="w-[370px] bg-[#C0C0C0] win-border shadow-2xl">
-        <div class="title-bar bg-gradient-to-r from-[#000080] to-[#1084D0] p-1 flex items-center justify-between" onmousedown="window.chrome.webview.postMessage({command:'DRAG'})">
+        <div class="bg-gradient-to-r from-[#000080] to-[#1084D0] p-1 flex items-center justify-between" onmousedown="window.chrome.webview.postMessage({command:'DRAG'})">
             <div class="flex items-center gap-2 px-1">
                 <i data-lucide="layout-grid" class="w-4 h-4 text-white"></i>
                 <span class="text-white font-bold text-[12px]">StayOnTop - Mini</span>
@@ -25,14 +27,20 @@
         </div>
 
         <div class="p-4 space-y-4">
-            <div class="flex items-center gap-2">
-                <i data-lucide="monitor" class="w-6 h-6"></i>
-                <h1 class="text-xl font-bold">Active Processes</h1>
+            <div class="space-y-1">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="monitor" class="w-6 h-6 text-black"></i>
+                    <h1 class="text-xl font-bold text-black">Active Processes</h1>
+                </div>
+                <p class="text-[11px] text-gray-600 font-medium">Select a window to pin to top</p>
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] font-bold text-[#404040]">Select Window:</label>
+                <select id="processSelect" class="w-full bg-white win-inset px-2 py-1.5 text-sm outline-none">
+                    <option>Loading</option>
+                </select>
             </div>
 
-            <select id="processSelect" class="w-full bg-white win-inset px-2 py-1.5 text-sm outline-none">
-                <option>Cargando procesos...</option>
-            </select>
 
             <div class="grid grid-cols-2 gap-4">
                 <button onclick="handleAction('SET_PIN')" class="bg-[#C0C0C0] win-border p-4 flex flex-col items-center gap-2 win-button">
@@ -45,11 +53,18 @@
                 </button>
             </div>
 
-            <div class="win-inset bg-white min-h-[100px] max-h-[100px] overflow-y-auto p-1 text-xs font-bold" id="pinnedList"></div>
+            <div class="flex items-center gap-2 py-2">
+                <div class="flex-1 h-[1px] bg-[#808080] border-b border-gay-500"></div>
+                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Pinned Items</span>
+                <div class="flex-1 h-[1px] bg-[#808080] border-b border-white"></div>
+            </div>
+        
+            <div class="win-inset bg-white min-h-[120px] max-h-[120px] overflow-y-auto p-1" id="pinnedList"></div>
         </div>
 
         <div class="bg-[#C0C0C0] border-t-2 border-white p-1 flex items-center text-[10px] font-bold text-gray-600">
-            <div class="flex-1 px-2 border-r border-[#808080]">Ready</div>
+            <div class="flex-1 px-2 border-r border-[#808080]">READY</div>
+            <div class="w-24 text-center border-r border-[#808080]" id="cpuDisplay">CPU: 0%</div>
             <div class="w-16 text-center">v1.2.0</div>
         </div>
     </div>
@@ -57,14 +72,15 @@
     <script>
         lucide.createIcons();
         let pinned = [];
+        let processIcons = {};
 
         function refresh() { window.chrome.webview.postMessage({ command: "GET_PROCESSES" }); }
         
         function handleAction(cmd) {
             const val = document.getElementById('processSelect').value;
             window.chrome.webview.postMessage({ command: cmd, name: val });
-            if(cmd === 'SET_PIN' && !pinned.includes(val)) {
-                pinned.push(val);
+            if(cmd === 'SET_PIN' && !pinned.find(x => x.name === val)) {
+                pinned.push({ name: val, icon: processIcons[val] || "" });
                 render();
             }
         }
@@ -72,16 +88,39 @@
         function render() {
             const list = document.getElementById('pinnedList');
             list.innerHTML = pinned.map(p => `
-                <div class="flex items-center justify-between p-1 border-b">
-                    <span>${p}</span>
-                    <button onclick="pinned=pinned.filter(x=>x!='${p}');render()" class="text-red-600">X</button>
+                <div class="flex items-center justify-between p-1 border-b text-[11px]">
+                    <div class="flex items-center gap-2">
+                        ${p.icon ? `<img src="${p.icon}" class="w-4 h-4">` : `<i data-lucide="file-text" class="w-4 h-4"></i>`}
+                        <span class="font-bold">${p.name}</span>
+                    </div>
+                    <button onclick="pinned=pinned.filter(x=>x.name!='${p.name}');render()" class="text-red-600 font-bold px-1">X</button>
                 </div>
             `).join('');
+            lucide.createIcons();
         }
 
+
+
         window.chrome.webview.addEventListener('message', e => {
-            document.getElementById('processSelect').innerHTML = e.data.map(p => `<option value="${p}">${p}</option>`).join('');
-        });
+        const msg = e.data;
+
+        if (msg.command === "PROCESS_LIST") {
+            const s = document.getElementById('processSelect');
+            const savedValue = s.value;
+        
+            s.innerHTML = msg.data.map(p => {
+                processIcons[p.name] = p.icon;
+                return `<option value="${p.name}">${p.name}</option>`;
+            }).join('');
+
+            if (savedValue) s.value = savedValue;
+      
+            document.getElementById('status').innerText = "Process list updated.";
+        } 
+        else if (msg.command === "CPU_UPDATE") {
+            document.getElementById('cpuDisplay').innerText = `CPU: ${msg.value}%`;
+        }
+    });
 
         setTimeout(refresh, 500);
     </script>
