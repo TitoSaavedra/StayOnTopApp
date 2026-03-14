@@ -2,7 +2,7 @@
 
 **Utilidad ultra-ligera de interoperabilidad Win32 para la gestión de capas y transparencia de ventanas.**
 
-Diseñado para usuarios que necesitan anclar ventanas específicas (como PiPs de navegadores, trackers de loot para BDO o guías) sobre aplicaciones en pantalla completa o juegos. Estética **Retro Windows 95** potenciada con **C# / WPF** y **WebView2**.
+Diseñado para usuarios que necesitan anclar ventanas específicas sobre aplicaciones en pantalla completa o juegos. Estética **Retro Windows 95** potenciada con **C# / WPF** y **WebView2**.
 
 ---
 
@@ -67,4 +67,4 @@ Este proyecto está bajo la licencia **MIT**. Siéntete libre de usarlo, modific
 
 ---
 
-**Desarrollado con 💻 y ☕ por [TitoS](https://github.com/TitoS)** _"Optimizando cosas que nadie pidió optimizar."_
+**Desarrollado con 💻 y ☕ por [TitoS](https://github.com/TitoSaavedra)** _"Optimizando cosas que nadie pidió optimizar."_
